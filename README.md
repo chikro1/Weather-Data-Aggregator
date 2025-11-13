@@ -1,17 +1,12 @@
 # Weather Data Aggregator
 
-Automated tooling for collecting, caching, and exploring weather observations and forecasts across multiple providers. The repository bundles flexible Python clients, export automation, and exploratory notebooks that share a common configuration.
+Flexible tooling to collect, cache, and explore weather observations and forecasts from multiple providers. The repo bundles:
 
----
+- Provider clients with batch/concurrency utilities
+- A configurable export runner for automated data pulls
+- Offline API notes and example notebooks
 
-## Project Highlights
-
-- **Unified configuration** – `weather_config.json` centralises provider credentials, defaults, and reusable location definitions.
-- **Concurrent exports** – `weather_data_export.py` fetches data from all enabled providers in parallel, looping continuously with a configurable cool-off period.
-- **Batch-aware clients** – Each provider client exposes `get_*_batch` helpers capable of sending requests in configurable batches, backed by a shared threading mixin.
-- **Exploratory notebooks** – Rich demos and export logic live under `notebooks/`, mirroring the Python script’s behaviour for ad-hoc analysis.
-- **Progress visualisation** – After every export run a cached coverage heatmap (`data/cache_coverage.png`) highlights which locations and dates are already stored.
-- **Verbose logging** – `logs/weather_export.log` captures run-by-run status, request skips, errors, and timing information.
+This README documents every moving part so you can configure, run, and extend the project confidently.
 
 ---
 
@@ -19,128 +14,202 @@ Automated tooling for collecting, caching, and exploring weather observations an
 
 ```
 .
-├── clients/                 # Provider-specific API wrappers with batch helpers
-├── data/                    # Cached CSV output (organised by provider/location/date)
-├── logs/                    # Verbose export logs (created on demand)
-├── notebooks/               # Jupyter notebooks for demos and manual exports
-├── weather_config.json      # Provider + location configuration
-├── weather_data_export.py   # Continuous export runner with concurrency + visualisation
-├── requirements.txt         # Python dependencies
+├── clients/                   # Provider-specific API clients + batch mixin
+├── api_docs/                  # Offline HTML docs/links for each provider
+├── data/                      # Cached CSV output (provider/location/date)
+├── logs/                      # Export logs (created on demand)
+├── notebooks/                 # Demos and export notebooks
+├── weather_config.json        # Project configuration (copy from *.template)
+├── weather_config.json.template
+├── weather_data_export.py     # Continuous exporter (CLI)
+├── requirements.txt           # Python dependencies
 └── README.md
 ```
 
 ---
 
-## Supported providers, datasets, and APIs
+## Supported Providers
 
-The aggregator currently integrates the following upstream services. Each client is implemented under `clients/` and driven by the matching block in `weather_config.json`.
+Implemented under `clients/` and configured via `weather_config.json`:
 
-| Provider key | Public name | Primary API / dataset | Cadence & scope | Notes |
-| --- | --- | --- | --- | --- |
-| `tomorrow_io` | Tomorrow.io Timelines | `https://api.tomorrow.io/v4/timelines` | Sub-hourly & hourly forecast / recent history | Rotates across multiple API keys, configurable timesteps and units. |
-| `open_meteo` | Open-Meteo | Forecast & Archive APIs | Hourly & daily weather variables | Supports unit overrides per variable and forecast/past day windows. |
-| `visual_crossing` | Visual Crossing | Timeline Weather API | Hourly forecast & history (JSON) | Location path parameters with optional include lists (days/hours). |
-| `noaa_isd` | NOAA Integrated Surface Database | Access Data Service `dataset=global-hourly` | Hourly & sub-hourly station observations | Requires station IDs and NOAA token; parses METAR style fields. |
-| `noaa_lcd` | NOAA Local Climatological Data | Access Data Service `dataset=local-climatological-data` | Hourly LCD observations | Shares the NOAA token, exposes station names when requested. |
-| `weatherapi_com` | WeatherAPI.com | Forecast, History, Future & Current endpoints | Hourly forecast/history up to 14 days | Supports key rotation, AQI/alert toggles, language overrides. |
-| `openweather` | OpenWeather | Current & History APIs | Hourly history via `type=hour` | Requires a single API key; converts ISO timestamps to UNIX for history requests. |
-| `weatherbit` | Weatherbit | Hourly forecast & sub-hourly history endpoints | Hourly data windows | Handles UTC timestamp formatting for historical pulls. |
-| `meteostat` | Meteostat Python SDK | Meteostat Hourly dataset | Hourly blended observations | Uses the local Meteostat cache/model data toggle, returns Pandas frames. |
-| `nasa_power` | NASA POWER | Hourly point endpoint | Hourly satellite/model parameters | Requests configurable parameter lists and normalises responses to tabular form. |
-| `iem_asos` | Iowa Environmental Mesonet ASOS | `asos1min.py` CSV service | 1-minute ASOS observations | Depends on station + network IDs and converts CSV output to DataFrames. |
-| `copernicus_era5_single` | Copernicus ERA5 (single levels) | CDS dataset `reanalysis-era5-single-levels` | Hourly grid (NetCDF) | Requires CDS API key; downloads and trims NetCDF to configured area. |
-| `copernicus_era5_land` | Copernicus ERA5-Land | CDS dataset `reanalysis-era5-land` | Hourly land grid (NetCDF) | Builds year/month/day requests based on day range; uses 0.1° grid. |
-| `copernicus_era5_pressure` | Copernicus ERA5 (pressure) | CDS dataset `reanalysis-era5-pressure-levels` | Hourly pressure levels (NetCDF) | Adds pressure level list and product type for reanalysis requests. |
-| `copernicus_era5_land_timeseries` | Copernicus ERA5-Land Timeseries | CDS dataset `reanalysis-era5-land-timeseries` | Hourly point CSV series | Retrieves CSV per point without area selection, ideal for quick summaries. |
+- `tomorrow_io` – Tomorrow.io Timelines (5m/1h current, forecast, recent history)
+- `open_meteo` – Open‑Meteo forecast + archive (hourly/daily variables)
+- `visual_crossing` – Visual Crossing timeline (current/forecast/history)
+- `noaa_isd` – NOAA ISD via Access Data Service (global‑hourly)
+- `noaa_lcd` – NOAA LCD via Access Data Service (local‑climatological‑data)
+- `weatherapi_com` – WeatherAPI.com (current/forecast/history/future)
+- `openweather` – OpenWeather (current + hourly history)
+- `weatherbit` – Weatherbit (hourly forecast + sub‑hourly history)
+- `meteostat` – Meteostat Python SDK (hourly)
+- `nasa_power` – NASA POWER hourly point
+- `iem_asos` – Iowa Environmental Mesonet ASOS 1‑minute
+- `copernicus_era5_single` – ERA5 single levels (NetCDF)
+- `copernicus_era5_land` – ERA5‑Land (NetCDF, 0.1°)
+- `copernicus_era5_pressure` – ERA5 pressure levels (NetCDF)
+- `copernicus_era5_land_timeseries` – ERA5‑Land point CSV series
 
-All providers share the batch execution infrastructure in `clients/__init__.py`, enabling concurrent request fans with optional throttling.
+Each client exposes single‑call and batch helpers (for concurrency) and normalises common inputs like locations and date/time ranges. See inline docstrings and the examples below.
 
 ---
 
-## Configuration (`weather_config.json`)
+## Environment & Installation
 
-Key sections:
+Prereqs: Python 3.9+.
 
-- **`providers`** – One entry per supported API with credentials, base URLs, dataset identifiers, default units, batching hints, and documentation links.
-- **`locations`** – Named latitude/longitude pairs, plus provider-specific metadata (e.g. NOAA station IDs or Copernicus area bounds) reused across notebooks and scripts.
+Setup a virtualenv and install deps:
 
-> **Tip:** Add or adjust locations here and both the notebooks and export script will automatically process all defined sites.
-
-### Using the configuration template
-
-1. Copy `weather_config.json.template` to `weather_config.json`.
-2. Replace every placeholder token (strings wrapped in `<...>`) with your real API keys, tokens, or CDS credentials. Leave structural values (URLs, default units, area arrays, etc.) untouched unless you need different defaults.
-3. Review the `locations` block and update station identifiers or bounding boxes as needed. Lat/lon pairs in the template match the example cities already referenced by notebooks and the exporter.
-4. Keep sensitive credentials out of version control—commit only the template.
-
----
-
-## Automation Script
-
-Run the continuous exporter:
-
-```bash
-python3 weather_data_export.py
 ```
-
-Features:
-
-- Executes all enabled providers concurrently (one thread per provider) while handling individual failures gracefully.
-- Mirrors notebook logic: skips already cached days (except the current date) and splits data into provider/location subdirectories.
-- After every cycle generates/updates `data/cache_coverage.png` to visualise coverage across the configured date range.
-- Sleeps for 10 minutes (`COOLDOWN_SECONDS`) before the next run; adjust this constant at the top of the script as needed.
-- Writes detailed progress and error information to `logs/weather_export.log` (also echoed to stdout).
-
-Stop with `Ctrl+C`. The script catches interrupts cleanly and halts after the current sleep period or immediate signal.
-
----
-
-## Notebooks
-
-Located in `notebooks/`:
-
-- `weather_api_clients_demo.ipynb` – Interactive walkthrough of every client, running both single calls and batch calls across all configured locations.
-- `weather_data_export.ipynb` – Notebook counterpart to the automation script: batch exports data, skips cached days, and finishes with the same coverage heatmap.
-
-Both notebooks respect the settings in `weather_config.json`. If you move or rename the file, update the path references inside the notebooks/script accordingly.
-
----
-
-## Dependencies & Environment
-
-Install the required packages into your environment of choice:
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The repository targets Python 3.9+ (matching the `.venv` metadata). If running in headless environments, note that `matplotlib` is configured to use the `Agg` backend for image generation, and `tqdm` supplies the optional progress bars rendered by the exporter.
+Notes:
+- `matplotlib` runs with the `Agg` backend for headless rendering.
+- Copernicus parsing uses `xarray` and `netcdf4`; ensure system libs for NetCDF/HDF5 are present in your environment.
+- Optional SDKs are listed in `requirements.txt` and are imported lazily with clear error messages if missing.
 
 ---
 
-## Logging & Outputs
+## Configuration (`weather_config.json`)
 
-- **CSV data:** `data/<provider>/<location>/<YYYY-MM-DD>.csv`
-- **Coverage heatmap:** `data/cache_coverage.png`
-- **Logs:** `logs/weather_export.log`
+Start from the template:
 
-Rotate or trim directories as needed if storage grows large. Historical CSVs can be archived without impacting future runs (the exporter recreates missing files on demand).
+```
+cp weather_config.json.template weather_config.json
+```
+
+Fill in provider credentials and review location metadata. Top‑level keys:
+
+- `providers` – One object per provider with credentials, URLs, defaults, and batching hints.
+- `locations` – Named sites with `lat`/`lon` plus provider‑specific extras (e.g., station IDs, Copernicus areas).
+
+Location extras used by the exporter:
+- NOAA ISD: `noaaIsdStation`
+- NOAA LCD: `noaaLcdStation`
+- IEM ASOS: `iemStation`, `iemNetwork`
+- Copernicus ERA5/Pressure: `copernicusEra5Area` (N, W, S, E bounding box)
+- Copernicus ERA5‑Land: `copernicusEra5LandArea`
+
+Provider config highlights (see template for full shape):
+- Tomorrow.io: `apiKeys[]`, `baseUrl`, `defaultTimesteps`, `defaultUnits`
+- Open‑Meteo: `forecastUrl`, `historicalUrl`, `defaultHourly[]`, `defaultDaily[]`, `defaultUnits{}`
+- Visual Crossing: `apiKey`, `baseUrl`, `defaultUnitGroup`, `defaultInclude[]`
+- NOAA Access (ISD/LCD): `dataset`, `token`, `defaultDataTypes[]`, `responseFormat`
+- WeatherAPI.com: `apiKeys[]` or `apiKey`, `baseUrl`, `defaultForecastDays`, `defaultAqi`, `defaultAlerts`
+- OpenWeather: `apiKey`, `currentUrl`, `historyUrl`, `defaultUnits`, `defaultHistoryType`
+- Weatherbit: `apiKey`, `forecastUrl`, `historicalUrl`, `defaultUnits`, `defaultHours`, `defaultTimezone`
+- Meteostat: `defaultTimezone`, `includeModelData`, `requestThrottleSeconds`
+- NASA POWER: `baseUrl`, `parameters[]`, `community`, `timeStandard`, `format`
+- Copernicus: `apiUrl`, `apiKey`, `dataset`, `mode`, `productType`, `variables[]`, `timeSteps[]`, `pressureLevels[]`, `format`, `grid[]`, `batchSize`, `retryMax`, `sleepMax`
+
+Security: never commit real keys or tokens. Keep only the template under version control.
 
 ---
 
-## Customisation Checklist
+## Export Runner (`weather_data_export.py`)
 
-1. **Update credentials** in `weather_config.json` for each provider you plan to use.
-2. **Add locations** under `locations` with descriptive keys to enable multi-site exports.
-3. **Tune concurrency** – adjust each provider’s `batchSize` in the config if APIs impose stricter rate limits.
-4. **Modify date span** – change `START_DATE` / `END_DATE` near the top of the notebook/script, or parameterise them to suit automation pipelines.
-5. **Adjust cooldown** – update `COOLDOWN_SECONDS` in `weather_data_export.py` to control run frequency.
+The exporter fetches data for all enabled providers across all configured locations and date ranges, writes daily CSVs, and optionally renders a coverage heatmap.
+
+Key defaults (top of script):
+- Dates: `START_DATE = 2000-01-01`, `END_DATE = 2025-11-05` (override via CLI)
+- Cooldown: `COOLDOWN_SECONDS = 300` between cycles
+- Pending flush cap: `MAX_PENDING_REQUESTS_PER_FLUSH = 25`
+- Provider toggles: Copernicus providers enabled by default; others disabled. Override with `--providers`.
+
+CLI usage:
+
+```
+python3 weather_data_export.py [--once] [--skip-coverage] \
+  [--providers p1,p2,...] [--since YYYY-MM-DD] [--until YYYY-MM-DD] \
+  [--limit-locations N]
+```
+
+Flags:
+- `--once` – Run a single export cycle and exit
+- `--skip-coverage` – Skip coverage chart generation
+- `--providers` – Comma‑separated provider keys to run; forces those toggles on for this run
+- `--since`, `--until` – Limit the date range for this run (inclusive)
+- `--limit-locations` – Only process the first N locations
+
+Behaviour:
+- Skips days already cached to `data/<provider>/<location>/<YYYY-MM-DD>.csv`, except always revisits “today”.
+- Runs providers concurrently; each client also batches its own API calls with a thread pool.
+- Writes logs to `logs/weather_export.log` and progress bars via `tqdm`.
+- Renders `data/cache_coverage.png` unless `--skip-coverage` is given.
+
+Examples:
+- Run Copernicus ERA5‑Land only for Jan 2020, first 2 locations:
+  `python3 weather_data_export.py --once --providers copernicus_era5_land --since 2020-01-01 --until 2020-01-31 --limit-locations 2`
+- Refresh Open‑Meteo + Visual Crossing for last week: 
+  `python3 weather_data_export.py --once --providers open_meteo,visual_crossing --since 2025-11-01 --until 2025-11-08`
+
+Provider notes:
+- Tomorrow.io: Only last ~24h of history are requested by default; fields and timesteps are configurable.
+- Open‑Meteo/Visual Crossing: Uses contiguous missing‑day spans and range endpoints with provider‑specific max days per request.
+- NOAA ISD/LCD: Requires station IDs in `locations`; token configured under provider.
+- IEM ASOS: Requires `iemStation` and `iemNetwork` per location.
+- Copernicus: Grid downloads (NetCDF) or point CSVs; areas are read from `locations` extras when required.
+- OpenWeather/WeatherAPI/Weatherbit: Use their hourly history/forecast capabilities; clients normalise timestamps/units where possible.
+
+Outputs:
+- CSV data per day: `data/<provider>/<location>/<YYYY-MM-DD>.csv`
+- Coverage chart: `data/cache_coverage.png`
+- Logs: `logs/weather_export.log`
+
+Stopping: Press `Ctrl+C`. The script exits immediately in `--once` mode or after sleep if interrupted between cycles.
+
+---
+
+## Provider Clients (Python)
+
+The `clients/` package contains one module per provider plus shared utilities:
+
+- `clients/__init__.py` – `BatchExecutorMixin` implements batched, threaded execution (`_run_batch`) used by all clients.
+- `clients/request_utils.py` – `build_request_headers()` generates randomized headers to reduce request fingerprinting.
+- `clients/tomorrow_io_client.py` – Timelines (`get_forecast`, `get_historical`, `*_batch`), with API key rotation.
+- `clients/open_meteo_client.py` – Forecast + archive wrappers with unit overrides; `get_*_batch` helpers.
+- `clients/visual_crossing_client.py` – Timeline requests composed via path segments; JSON parsing to per‑day/hour rows.
+- `clients/noaa_access_client.py` – Access Data Service (ISD/LCD) with token header; station‑scoped requests and batch helpers.
+- `clients/iem_asos_client.py` – 1‑minute CSV to Pandas DataFrame; station/network + variable selection.
+- `clients/meteostat_client.py` – Meteostat `Hourly(Point)` to list‑of‑dicts records.
+- `clients/nasa_power_client.py` – Hourly point parameters; configurable list of variables.
+- `clients/openweather_client.py` – Current + history (`type=hour`) with UNIX timestamp conversions.
+- `clients/weatherapi_com_client.py` – Forecast/history/current/future with API key rotation and language/AQI/alerts options.
+- `clients/weatherbit_client.py` – Hourly forecast and sub‑hourly history with timezone parameter support.
+- `clients/copernicus_cds_client.py` – CDS API for ERA5/ERA5‑Land/Pressure/Timeseries; parses NetCDF/CSV to Pandas and supports area boxes.
+
+See the module docstrings for official API references; additional HTML quick references live in `api_docs/`.
+
+---
+
+## Notebooks
+
+Located under `notebooks/` and driven by the same configuration file:
+
+- `weather_api_clients_demo.ipynb` – Interactive walkthrough of all clients (single calls and batch requests).
+- `weather_data_export.ipynb` – Notebook version of the exporter (skips cached days and renders the coverage chart).
+
+Run with your preferred Jupyter environment after activating the virtualenv.
+
+---
+
+## Troubleshooting
+
+- Missing packages: Error messages point to the `pip install` line for the specific client (e.g., `cdsapi`, `meteostat`). Install the package and retry.
+- NetCDF/HDF5 issues: Ensure system libraries are available for `netcdf4`/`xarray`.
+- API rate limits: Lower provider `batchSize` in `weather_config.json` or increase `requestThrottleSeconds` where supported.
+- Empty CSVs: Some providers legitimately return no data for a day/location; the exporter logs these as skipped.
+- Credentials: Verify keys/tokens in `weather_config.json` and that location extras (stations/areas) are present where required.
+
+---
+
+## Legal
+
+You are responsible for complying with each provider’s Terms of Service and attribution requirements. This project does not include any provider credentials.
 
 ---
 
 ## License
 
-No explicit license provided. Add your preferred license text here if you plan to distribute or open-source the project.
-
+No explicit license provided. Add your preferred license if you plan to distribute this project.
