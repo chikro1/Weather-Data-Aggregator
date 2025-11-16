@@ -45,7 +45,7 @@ The architecture follows SOLID principles with a modular client-exporter design,
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/weather-data-aggregator.git
+git clone https://github.com/chikro1/Weather-Data-Aggregator.git
 cd weather-data-aggregator
 
 # Create and activate virtual environment
@@ -446,7 +446,7 @@ If you use this tool in academic research, please cite:
   title = {Multi-Source Weather Data Aggregator},
   author = {Rohan Chikkam},
   year = {2025},
-  url = {https://github.com/yourusername/weather-data-aggregator},
+  url = {https://github.com/chikro1/Weather-Data-Aggregator},
   note = {A production-grade Python framework for multi-source weather data collection}
 }
 ```
@@ -483,7 +483,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/weather-data-aggregator/issues)
+- **Issues**: [GitHub Issues](https://github.com/chikro1/Weather-Data-Aggregator/issues)
 - **Documentation**: See inline docstrings and comments in source code
 - **Email**: your.email@institution.edu
 
