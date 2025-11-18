@@ -131,6 +131,10 @@ class IemAsosClient(WeatherClient, BatchExecutorMixin):
     ) -> pd.DataFrame:
         start = self._ensure_datetime(start_time)
         end = self._ensure_datetime(end_time)
+        # If end time is at midnight (00:00:00), set it to end of day (23:59:59)
+        # to ensure we get the full day's data
+        if end.hour == 0 and end.minute == 0 and end.second == 0:
+            end = end.replace(hour=23, minute=59, second=59)
         params = self._build_params(station=station, network=network, start_time=start, end_time=end, variables=variables)
         return self._request(params)
 

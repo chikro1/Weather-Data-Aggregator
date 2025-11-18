@@ -73,6 +73,10 @@ class MeteostatClient(WeatherClient, BatchExecutorMixin):
         start = self._normalise_time(start_time)
         end = self._normalise_time(end_time)
 
+        # If end time is at midnight (00:00:00), set it to end of day (23:59:59)
+        # to ensure we get the full day's hourly data
+        if end.hour == 0 and end.minute == 0 and end.second == 0:
+            end = end.replace(hour=23, minute=59, second=59)
 
         point = Point(lat, lon)
         query = Hourly(point, start, end, model=model or ("gfs" if self.include_model_data else None))
