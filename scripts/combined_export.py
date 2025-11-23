@@ -53,10 +53,10 @@ MAX_WORKERS_PER_PROVIDER = 10
 
 # GIBS defaults
 DEFAULT_GIBS_FREQ = "1d"
-MAX_WORKERS_GIBS = 8
+MAX_WORKERS_GIBS = 128
 GIBS_REFRESH_DAYS = 1  # always refresh last N days
-GIBS_WIDTH = 512
-GIBS_HEIGHT = 512
+GIBS_WIDTH = 1024
+GIBS_HEIGHT = 1024
 
 # Provider toggles (can be overridden via --providers filter)
 USE_OPEN_METEO = True
