@@ -374,6 +374,35 @@ def check_existing_weather_cache(
         tracker.log(f"{provider}/{location_key}: Found {cached_count} cached files")
 
 
+def check_existing_gibs_cache(
+    tracker: ProgressTracker,
+    provider: str,
+    location_key: str,
+    base_dir: Path,
+    layer: str,
+    timestamps: Iterable[dt.datetime],
+    should_refresh_fn,
+) -> int:
+    """
+    Pre-mark cached GIBS images so we skip scheduling downloads.
+
+    Returns:
+        Number of cached images detected.
+    """
+    cached = 0
+    for ts in timestamps:
+        filename = ts.strftime("%Y-%m-%dT%H%M%SZ") + ".png"
+        path = base_dir / filename
+        if path.exists() and not should_refresh_fn(ts):
+            step = (layer, ts)
+            tracker.set_status(provider, location_key, step, "cached")
+            cached += 1
+
+    if cached:
+        tracker.log(f"{provider}/{location_key}/{layer}: Found {cached} cached images")
+    return cached
+
+
 def process_date_batch(
     client,
     exporter,
@@ -573,12 +602,20 @@ def export_gibs(
             for layer in layers:
                 base_dir = DATA_ROOT / provider_key / layer / location_key
                 base_dir.mkdir(parents=True, exist_ok=True)
+                check_existing_gibs_cache(
+                    tracker,
+                    provider_key,
+                    location_key,
+                    base_dir,
+                    layer,
+                    timestamps,
+                    should_refresh,
+                )
                 for ts in timestamps:
                     step = (layer, ts)
                     filename = ts.strftime("%Y-%m-%dT%H%M%SZ") + ".png"
                     path = base_dir / filename
                     if path.exists() and not should_refresh(ts):
-                        tracker.set_status(provider_key, location_key, step, "cached")
                         continue
                     tasks.append(
                         executor.submit(
